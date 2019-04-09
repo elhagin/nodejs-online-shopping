@@ -11,7 +11,7 @@ module.exports = {
 					const token = jwt.sign(
 						{ id: userData._id },
 						req.app.get('secretKey'),
-						{ expiresIn: '1h' }
+						{ expiresIn: '24h' }
 					);
 					res.json({
 						token: token
