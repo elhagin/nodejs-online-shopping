@@ -18,7 +18,7 @@ app.use(bodyParser.urlencoded({ extended: false }));
 
 // routes
 app.use('/', indexRouter);
-app.use('/login', usersRouter);
+app.use('/user', usersRouter);
 app.use('/products', validateUser, productsRouter);
 
 // express doesn't consider not found 404 as an error so we need to handle 404 explicitly

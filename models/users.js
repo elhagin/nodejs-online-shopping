@@ -1,10 +1,12 @@
-const mongoose = require('../config/database');
+const mongoose = require("../config/database");
 const Schema = mongoose.Schema;
+const ObjectId = mongoose.Schema.Types.ObjectId;
 
 const UsersSchema = new Schema({
-    name: String,
-    email: String,
-    password: String
+	name: String,
+	email: String,
+	password: String,
+	cart: [{ productName: String, quantity: Number }]
 });
 
-module.exports = mongoose.model('Users', UsersSchema, 'Users');
+module.exports = mongoose.model("Users", UsersSchema, "Users");

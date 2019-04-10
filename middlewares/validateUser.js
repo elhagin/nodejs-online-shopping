@@ -8,7 +8,7 @@ module.exports = function validateUser(req, res, next) {
 		if (err) {
 			res.json({ status: "error", message: err.message, data: null });
 		} else {
-			req.body.userId = decoded.id;
+			req.body.userID = decoded.id;
 			next();
 		}
 	});
