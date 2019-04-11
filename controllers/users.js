@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken");
+const createError = require('http-errors');
 
 const usersModel = require("../models/users");
 const productsModel = require("../models/products");
@@ -38,7 +39,7 @@ const addToCart = function(req, res, next) {
 			const purchaseQuantity = req.body.quantity;
 			if (productQuantity >= purchaseQuantity) {
 				updateProduct(req.body.productID, productQuantity - purchaseQuantity);
-				updateUserCart(req.body.userID, productData._id, purchaseQuantity);
+				updateUserCart(req.body.userID, productData, purchaseQuantity);
 				res.json({ status: 200, message: "Successfully added to cart" });
 			} else {
 				res.json({
@@ -61,18 +62,18 @@ function updateProduct(productID, newQuantity) {
 			}
 		}
 	);
-}
+};
 
-function updateUserCart(userID, productID, quantity) {
+function updateUserCart(userID, productToBeAdded, quantity) {
 	usersModel.findOne({ _id: userID }, function(err, userData) {
 		let alreadyAddedProduct = false;
 		userData.cart.forEach(product => {
-			if (product.productID.equals(productID)) {
+			if (product.productID.equals(productToBeAdded.productID)) {
 				alreadyAddedProduct = true;
 				const newQuantity = (product.quantity += quantity);
 
 				usersModel.updateOne(
-					{ _id: userID, "cart.productID": productID },
+					{ _id: userID, "cart.productID": productToBeAdded.productID },
 					{ $set: { "cart.$.quantity": newQuantity } },
 					function(err, res) {
 						if (err) {
@@ -84,9 +85,15 @@ function updateUserCart(userID, productID, quantity) {
 		});
 
 		if (!alreadyAddedProduct) {
+			productToBeAdded = {
+				productID: productToBeAdded._id,
+				quantity: quantity,
+				price: productToBeAdded.price,
+				currency: productToBeAdded.currency
+			};
 			usersModel.updateOne(
 				{ _id: userID },
-				{ $push: { cart: { productID: productID, quantity: quantity } } },
+				{ $push: { cart: productToBeAdded } },
 				function(err, res) {
 					if (err) {
 						next(err);
@@ -95,7 +102,7 @@ function updateUserCart(userID, productID, quantity) {
 			);
 		}
 	});
-}
+};
 
 const proceedWithPayment = function(req, res, next) {
 	if (!req.body.userID) {
@@ -107,13 +114,48 @@ const proceedWithPayment = function(req, res, next) {
 			next(createError("User does not have any products in cart"));
 		}
 
-		user.cart.forEach(product => {
+		let totalToBePaid = 0;
 
+		user.cart.forEach(product => {
+			productsModel.findById(product.productID, function(err, productData) {
+				if (productData.quantity < product.quantity) {
+					next(createError("Product stock is less than required purchase quantity"));
+				}
+			});
+
+			if (product.currency !== 'USD') {
+				switch (product.currency) {
+					case 'EGP': product.price /= 17.35;
+					break;
+
+					case 'EUR': product.price /= 1.13;
+					break;
+
+					default: next(createError('Only EGP/USD/EUR currencies supported'));
+				}
+			}
+			
+			totalToBePaid += product.price;
 		});
+
+		const sid = 901405743;
+		const link = `https://sandbox.2checkout.com/checkout/purchase?sid=${sid}&mode=2CO&li_0_price=${totalToBePaid}`
+		
+		res.send(link);
 	});
-}
+};
+
+const purchaseSuccess = function(req, res, next) {
+	if (req.query.credit_card_processed === 'Y') {
+		res.send("Congratulations on your purchase");
+	} else {
+		next(createError("Error during purchase"));
+	}
+};
 
 module.exports = {
 	authenticate,
-	addToCart
+	addToCart,
+	proceedWithPayment,
+	purchaseSuccess
 };

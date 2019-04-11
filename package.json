@@ -6,8 +6,6 @@
     "start": "nodemon ./bin/www"
   },
   "dependencies": {
-    "2checkout-node": "0.0.1",
-    "axios": "0.18.0",
     "body-parser": "1.18.3",
     "debug": "~2.6.9",
     "express": "~4.16.0",
