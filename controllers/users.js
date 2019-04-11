@@ -3,7 +3,7 @@ const jwt = require("jsonwebtoken");
 const usersModel = require("../models/users");
 const productsModel = require("../models/products");
 
-const authFunc = function(req, res, next) {
+const authenticate = function(req, res, next) {
 	usersModel.findOne({ email: req.body.email }, function(err, userData) {
 		if (err) {
 			next(err);
@@ -26,8 +26,8 @@ const authFunc = function(req, res, next) {
 	});
 };
 
-const addToCartFunc = function(req, res, next) {
-	productsModel.findOne({ name: req.body.productName }, function(
+const addToCart = function(req, res, next) {
+	productsModel.findOne({ _id: req.body.productID }, function(
 		err,
 		productData
 	) {
@@ -37,8 +37,8 @@ const addToCartFunc = function(req, res, next) {
 			const productQuantity = productData.quantity;
 			const purchaseQuantity = req.body.quantity;
 			if (productQuantity >= purchaseQuantity) {
-				updateProduct(req.body.productName, productQuantity - purchaseQuantity);
-				updateUserCart(req.body.userID, productData.name, purchaseQuantity);
+				updateProduct(req.body.productID, productQuantity - purchaseQuantity);
+				updateUserCart(req.body.userID, productData._id, purchaseQuantity);
 				res.json({ status: 200, message: "Successfully added to cart" });
 			} else {
 				res.json({
@@ -51,9 +51,9 @@ const addToCartFunc = function(req, res, next) {
 	});
 };
 
-function updateProduct(productName, newQuantity) {
+function updateProduct(productID, newQuantity) {
 	productsModel.updateOne(
-		{ name: productName },
+		{ _id: productID },
 		{ quantity: newQuantity },
 		function(err, res) {
 			if (err) {
@@ -63,16 +63,16 @@ function updateProduct(productName, newQuantity) {
 	);
 }
 
-function updateUserCart(userID, productName, quantity) {
+function updateUserCart(userID, productID, quantity) {
 	usersModel.findOne({ _id: userID }, function(err, userData) {
 		let alreadyAddedProduct = false;
 		userData.cart.forEach(product => {
-			if (product.productName === productName) {
+			if (product.productID.equals(productID)) {
 				alreadyAddedProduct = true;
 				const newQuantity = (product.quantity += quantity);
 
 				usersModel.updateOne(
-					{ _id: userID, "cart.productName": productName },
+					{ _id: userID, "cart.productID": productID },
 					{ $set: { "cart.$.quantity": newQuantity } },
 					function(err, res) {
 						if (err) {
@@ -86,7 +86,7 @@ function updateUserCart(userID, productName, quantity) {
 		if (!alreadyAddedProduct) {
 			usersModel.updateOne(
 				{ _id: userID },
-				{ $push: { cart: { productName: productName, quantity: quantity } } },
+				{ $push: { cart: { productID: productID, quantity: quantity } } },
 				function(err, res) {
 					if (err) {
 						next(err);
@@ -97,7 +97,23 @@ function updateUserCart(userID, productName, quantity) {
 	});
 }
 
+const proceedWithPayment = function(req, res, next) {
+	if (!req.body.userID) {
+		next(createError("User not authenticated"));
+	}
+
+	usersModel.findById(req.body.userID, function(err, user) {
+		if (!user.cart || user.cart.length == 0) {
+			next(createError("User does not have any products in cart"));
+		}
+
+		user.cart.forEach(product => {
+
+		});
+	});
+}
+
 module.exports = {
-	authenticate: authFunc,
-	addToCart: addToCartFunc
+	authenticate,
+	addToCart
 };
