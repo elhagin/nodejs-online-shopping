@@ -3,6 +3,8 @@ const createError = require("http-errors");
 
 const usersModel = require("../models/users");
 const productsModel = require("../models/products");
+const mongoose = require("../config/database");
+const ObjectID = mongoose.Types.ObjectId;
 
 const authenticate = function(req, res, next) {
 	usersModel.findOne({ email: req.body.email }, function(err, userData) {
@@ -27,86 +29,78 @@ const authenticate = function(req, res, next) {
 	});
 };
 
-const addToCart = function(req, res, next) {
-	// const productIDs = [];
-	// req.body.products.forEach(product => {
-	// 	productIDs.push(product.productID);
-	// })
-
-	// productsModel.find({ _id: { $in: productIDs } }, function(err, products) {
-
-	// });
-	productsModel.findOne({ _id: req.body.productID }, function(
-		err,
-		productData
-	) {
-		if (err) {
-			next(err);
-		} else {
-			const productQuantity = productData.quantity;
-			const purchaseQuantity = req.body.quantity;
-			if (productQuantity >= purchaseQuantity) {
-				updateUserCart(req.body.userID, productData, purchaseQuantity, res, next);
-			} else {
-				res.json({
-					status: "error",
-					message:
-						"Cannot purchase that quantity as it exceeds available quantity"
-				});
-			}
-		}
+const addToCart = async function(req, res, next) {
+	const productIDs = [];
+	req.body.products.forEach(product => {
+		productIDs.push(ObjectID(product.productID));
 	});
+
+	const products = await productsModel.find(
+		{ _id: { $in: productIDs } },
+		{ quantity: 1, price: 1, currency: 1 }
+	);
+
+	let notEnoughQuantity = false;
+	let userCart = await usersModel.findOne(
+		{ _id: ObjectID(req.body.userID) },
+		{ _id: 0, cart: 1 }
+	);
+	userCart = userCart.toObject().cart;
+
+	req.body.products.forEach(productInReq => {
+		const currentProductInCart = userCart.filter(productInCart =>
+			productInCart._id.equals(productInReq.productID)
+		)[0];
+
+		const newQuantity = currentProductInCart
+			? currentProductInCart.quantity + productInReq.quantity
+			: 0;
+		notEnoughQuantity = products.some(
+			product =>
+				product.quantity < productInReq.quantity ||
+				newQuantity > product.quantity
+		);
+
+		products.forEach(product => (product.quantity = productInReq.quantity));
+	});
+	if (!notEnoughQuantity) {
+		updateUserCart(req.body.userID, products, res);
+	} else {
+		res.send("Some products in cart exceed available quantity");
+	}
 };
 
-function updateUserCart(userID, productToBeAdded, quantity, res, next) {
-	usersModel.findOne({ _id: userID }, function(err, userData) {
-		let alreadyAddedProduct = false;
-		userData.cart.forEach(product => {
-			// console.log("product.productID");
-			// console.log(product.productID);
-			// console.log("productToBeAdded.productID");
-			// console.log(productToBeAdded.productID);
-			
-			if (product.productID.equals(productToBeAdded._id)) {
-				alreadyAddedProduct = true;
-				const newQuantity = (product.quantity += quantity);
+async function updateUserCart(userID, productsToBeAdded, res) {
+	const productIDs = [];
+	productsToBeAdded.forEach(product => {
+		productIDs.push(ObjectID(product._id));
+	});
 
-				usersModel.updateOne(
-					{ _id: userID, "cart.productID": productToBeAdded.productID },
-					{ $set: { "cart.$.quantity": newQuantity } },
-					function(err, result) {
-						if (err) {
-							next(err);
-						}
+	let totalResult = [];
 
-						if (result.ok) {
-							res.json({ status: 200, message: "Successfully added to cart" });
-						}
-					}
-				);
-			}
-		});
+	productsToBeAdded.forEach(async product => {
+		const productID = ObjectID(product._id);
+		let result = await usersModel.updateOne(
+			{ _id: ObjectID(userID), "cart._id": ObjectID(productID) },
+			{ $inc: { "cart.$.quantity": product.quantity } }
+		);
+		result = Number(result.n === result.nModified);
+		totalResult.push(Promise.resolve(result.nModified));
+	});
 
-		if (!alreadyAddedProduct) {
-			productToBeAdded = {
-				productID: productToBeAdded._id,
-				quantity: quantity,
-				price: productToBeAdded.price,
-				currency: productToBeAdded.currency
-			};
-			usersModel.updateOne(
-				{ _id: 'userID' },
-				{ $push: { cart: productToBeAdded } },
-				function(err, result) {
-					if (err) {
-						next(err);
-					}
+	result = await usersModel.updateOne(
+		{ _id: userID, "cart._id": { $nin: productIDs } },
+		{ $push: { cart: { $each: productsToBeAdded } } }
+	);
 
-					if (result.ok) {
-						res.json({ status: 200, message: "Successfully added to cart" });
-					}
-				}
-			);
+	result = Number(result.n === result.nModified);
+	totalResult.push(Promise.resolve(result.nModified));
+
+	Promise.all(totalResult).then(function(results) {
+		if (!results.includes(0)) {
+			res.send("Successfully added to cart");
+		} else {
+			res.send("Error while adding some items to cart");
 		}
 	});
 }
@@ -124,7 +118,7 @@ const proceedWithPayment = function(req, res, next) {
 		let totalToBePaid = 0;
 
 		user.cart.forEach(product => {
-			productsModel.findById(product.productID, function(err, productData) {
+			productsModel.findById(product._id, function(err, productData) {
 				if (productData.quantity < product.quantity) {
 					next(
 						createError("Product stock is less than required purchase quantity")
@@ -132,7 +126,7 @@ const proceedWithPayment = function(req, res, next) {
 				}
 
 				decrementProductStock(
-					product.productID,
+					product._id,
 					productData.quantity - product.quantity,
 					next
 				);
@@ -153,21 +147,22 @@ const proceedWithPayment = function(req, res, next) {
 				}
 			}
 
-			totalToBePaid += product.price;
+			totalToBePaid += product.price * quantity;
 		});
 
 		const sid = 901405743;
-		const link = `https://sandbox.2checkout.com/checkout/purchase?sid=${sid}&mode=2CO&li_0_price=${totalToBePaid}`;
+		const link = `https://sandbox.2checkout.com/checkout/purchase?sid=${sid}
+		&mode=2CO&li_0_price=${totalToBePaid}`;
 
 		res.send(link);
 	});
 };
 
-const purchaseSuccess = function(req, res, next) {
+const purchaseSuccess = function(req, res) {
 	if (req.query.credit_card_processed === "Y") {
 		res.send("Congratulations on your purchase");
 	} else {
-		next(createError("Error during purchase"));
+		res.send("Error during purchase");
 	}
 };
 
