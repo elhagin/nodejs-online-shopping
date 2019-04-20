@@ -1,6 +1,6 @@
 const productsModel = require("../models/products");
 
-const showAllProductsFunc = function(req, res, next) {
+const showAllProducts = function(req, res, next) {
 	productsModel.find({}, function(err, products) {
 		if (err) {
 			next(err);
@@ -13,5 +13,5 @@ const showAllProductsFunc = function(req, res, next) {
 };
 
 module.exports = {
-	showAllProducts: showAllProductsFunc
+	showAllProducts
 };

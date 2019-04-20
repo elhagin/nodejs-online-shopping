@@ -3,12 +3,12 @@ const Schema = mongoose.Schema;
 
 const ProductsSchema = new Schema({
     name: String,
-    price: String,
+    price: Number,
     currency: String,
     category: String,
     vendor: String,
     publisher: String,
-    quantity: String,
+    quantity: Number,
     description: String
 });
 
